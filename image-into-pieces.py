@@ -1,1 +1,1 @@
-__author__ = 'Andriy'
+import Magick
