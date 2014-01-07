@@ -1,5 +1,9 @@
 from wand.image import Image
 import math
+import os
+import sys
+import errno
+from optparse import OptionParser
 
 class Slice:
     """
@@ -23,12 +27,30 @@ class Slice:
             name=self.output_name, width=self.width, height=self.height,
             x=self.x, y=self.y)
 
-def sliceImage(source_name, slice_size, slice_name, slice_format, compression_quality=100):
-    output_name = '{name}_{x}_{y}.{format}'.format(name=slice_name,
-                                                   format=slice_format,
-                                                   x='{x}',
-                                                   y='{y}')
+def sliceImage(source_name,
+               slice_size,
+               slice_name,
+               slice_format,
+               output_directory=".",
+               generate_index_file=True,
+               compression_quality=100):
+
+    if not os.path.exists(output_directory):
+        os.makedirs(output_directory)
+    else:
+        #Delete all existing files
+        for files in os.listdir(output_directory):
+            if files.startswith(slice_name):
+                os.remove(os.path.join(output_directory, files))
+
+    output_name = '{name}_{x}_{y}.{format}'.format(
+        name=slice_name,
+        format=slice_format,
+        x='{x}',
+        y='{y}')
+
     info_name = '{name}.slice'.format(name=slice_name)
+    print('Opening image')
 
     image = Image(filename=source_name)
     slice_size = int(slice_size)
@@ -49,10 +71,17 @@ def sliceImage(source_name, slice_size, slice_name, slice_format, compression_qu
             slice.output_name = output_name.format(x=x, y=y)
             slices.append(slice)
 
-    f = open(info_name, 'w')
+    f = open(os.path.join(output_directory, info_name), 'w')
     f.write('{width} {height} {slices}\n'.format(width=width,
                                                  height=height,
                                                  slices=len(slices)))
+
+    index_f = None
+    if generate_index_file:
+        index_f = open(os.path.join(output_directory, 'index.idx.xml'), 'w')
+        index_f.write('<?xml version="1.0" encoding="UTF-8"?>\n<directory>\n')
+        index_f.write('\t<file><name>{0}</name></file>\n'.format(info_name))
+
     for s in slices:
         cropped = image.clone()
         cropped.crop(s.x,
@@ -60,14 +89,58 @@ def sliceImage(source_name, slice_size, slice_name, slice_format, compression_qu
                      width=s.width,
                      height=s.height)
         cropped.compression_quality = compression_quality
-        cropped.save(filename=s.output_name)
+        print('Saving: {0}'.format(s.output_name))
+        cropped.save(filename=os.path.join(output_directory, s.output_name))
         f.write('{x} {y} {width} {height} {name}\n'.format(
             x=s.x, y=s.y, width=s.width, height=s.height,
             name=s.output_name
         ))
+        if generate_index_file:
+            index_f.write('\t<file><name>{0}</name></file>\n'.format(s.output_name))
 
+    if generate_index_file:
+        index_f.write('</directory>\n')
 
+try:
+    parser = OptionParser()
+    parser.add_option("-s", "--source", dest="source_image",
+                      help="Image which should be divided into slices")
+    parser.add_option("-p", "--slice-size",
+                      dest="slice_size", type="int",
+                      help="The max size of each slice")
+    parser.add_option("-o", "--output-name",
+                      dest="output_name",
+                      help="The name of output")
+    parser.add_option("-d", "--output-directory",
+                      dest="output_dir",
+                      default=".",
+                      help="The name of dir to put everything")
+    parser.add_option("-i", "--index",
+                      dest="index",
+                      action="store_false", default=False,
+                      help="Generate index for Resource Compiler")
+    parser.add_option("-f", "--format",
+                      dest="format",
+                      default="jpg",
+                      help="Format of the output: jpg, png, etc.")
+    parser.add_option("-q", "--quality",
+                      dest="quality",
+                      default="100",
+                      help="Output quality [0, 100] for jpg")
 
-
-sliceImage('image.jpg', slice_size=512, slice_name="out",
-           slice_format="jpg", compression_quality=55)
+    (options, args) = parser.parse_args()
+    print(options.output_name)
+    if options.output_name is None or options.source_image is None or options.slice_size is None:
+        parser.print_help()
+    else:
+        sliceImage(options.source_image,
+                   slice_size=options.slice_size,
+                   slice_name=options.output_name,
+                   output_directory=options.output_dir,
+                   slice_format=options.format,
+                   compression_quality=options.quality,
+                   generate_index_file=options.index)
+except Exception as e:
+    print(e.__doc__, file=sys.stderr)
+    print(e.__str__(), file=sys.stderr)
+    sys.exit(errno.EIO)
