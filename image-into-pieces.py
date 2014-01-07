@@ -1,9 +1,14 @@
-from wand.image import Image
-import math
-import os
-import sys
-import errno
-from optparse import OptionParser
+try:
+    from wand.image import Image
+    import math
+    import os
+    import sys
+    import errno
+    from optparse import OptionParser
+except Exception as e:
+    print(e.__doc__, file=sys.stderr)
+    print(e.__str__(), file=sys.stderr)
+    sys.exit(errno.EIO)
 
 class Slice:
     """
@@ -88,7 +93,7 @@ def sliceImage(source_name,
                      s.y,
                      width=s.width,
                      height=s.height)
-        cropped.compression_quality = compression_quality
+        cropped.compression_quality = int(compression_quality)
         print('Saving: {0}'.format(s.output_name))
         cropped.save(filename=os.path.join(output_directory, s.output_name))
         f.write('{x} {y} {width} {height} {name}\n'.format(
@@ -125,11 +130,11 @@ try:
                       help="Format of the output: jpg, png, etc.")
     parser.add_option("-q", "--quality",
                       dest="quality",
-                      default="100",
+                      default=100,
+                      type="int",
                       help="Output quality [0, 100] for jpg")
 
     (options, args) = parser.parse_args()
-    print(options.output_name)
     if options.output_name is None or options.source_image is None or options.slice_size is None:
         parser.print_help()
     else:
