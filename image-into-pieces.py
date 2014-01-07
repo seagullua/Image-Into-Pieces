@@ -122,7 +122,7 @@ try:
                       help="The name of dir to put everything")
     parser.add_option("-i", "--index",
                       dest="index",
-                      action="store_false", default=False,
+                      action="store_false", default=True,
                       help="Generate index for Resource Compiler")
     parser.add_option("-f", "--format",
                       dest="format",
