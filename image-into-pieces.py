@@ -36,6 +36,8 @@ def sliceImage(source_name,
                slice_size,
                slice_name,
                slice_format,
+               binary,
+               chunk_size,
                output_directory=".",
                generate_index_file=True,
                compression_quality=100):
@@ -53,6 +55,9 @@ def sliceImage(source_name,
         format=slice_format,
         x='{x}',
         y='{y}')
+
+
+
 
     info_name = '{name}.slice'.format(name=slice_name)
     print('Opening image')
@@ -77,9 +82,20 @@ def sliceImage(source_name,
             slices.append(slice)
 
     f = open(os.path.join(output_directory, info_name), 'w')
-    f.write('{width} {height} {slices}\n'.format(width=width,
-                                                 height=height,
-                                                 slices=len(slices)))
+
+    chunk_name = '{name}_{id}.chunk'.format(name=slice_name,
+                                            id='{id}')
+    chunks_number = int(math.ceil(len(slices) / chunk_size));
+
+    if binary:
+        f.write('{width} {height} 0 {chunks} {slices}\n'.format(width=width,
+                                                     height=height,
+                                                     slices=len(slices),
+                                                     chunks=chunks_number))
+    else:
+        f.write('{width} {height} {slices}\n'.format(width=width,
+                                                     height=height,
+                                                     slices=len(slices)))
 
     index_f = None
     if generate_index_file:
@@ -87,7 +103,28 @@ def sliceImage(source_name,
         index_f.write('<?xml version="1.0" encoding="UTF-8"?>\n<directory>\n')
         index_f.write('\t<file><name>{0}</name></file>\n'.format(info_name))
 
+    if binary:
+        for i in range(0, chunks_number):
+            chunk_file_name = chunk_name.format(id=i)
+            f.write('{id} {chunk}\n'.format(id=i,
+                                            chunk=chunk_file_name))
+            index_f.write('\t<file><name>{0}</name></file>\n'.format(chunk_file_name))
+
+
+    slice_id = 0
+    chunk_id = -1
+    chunk_file_out = None
+
     for s in slices:
+        cur_chunk_id = slice_id // chunk_size
+        if binary and cur_chunk_id != chunk_id:
+            chunk_id = cur_chunk_id
+            if chunk_file_out is not None:
+                chunk_file_out.close()
+            chunk_file_name = chunk_name.format(id=chunk_id)
+            chunk_file_out = open(os.path.join(output_directory, chunk_file_name), 'wb')
+        slice_id += 1
+
         cropped = image.clone()
         cropped.crop(s.x,
                      s.y,
@@ -95,13 +132,32 @@ def sliceImage(source_name,
                      height=s.height)
         cropped.compression_quality = int(compression_quality)
         print('Saving: {0}'.format(s.output_name))
-        cropped.save(filename=os.path.join(output_directory, s.output_name))
-        f.write('{x} {y} {width} {height} {name}\n'.format(
-            x=s.x, y=s.y, width=s.width, height=s.height,
-            name=s.output_name
-        ))
-        if generate_index_file:
-            index_f.write('\t<file><name>{0}</name></file>\n'.format(s.output_name))
+        output_slice_name = os.path.join(output_directory, s.output_name)
+        cropped.save(filename=output_slice_name)
+
+        if binary:
+            position = chunk_file_out.tell()
+            size = 0
+
+            slice_file = open(output_slice_name, mode='rb')
+            chunk_file_out.write(slice_file.read())
+            slice_file.close()
+
+            size = chunk_file_out.tell() - position
+
+            f.write('{x} {y} {width} {height} {chunk} {position} {length}\n'.format(
+                x=s.x, y=s.y, width=s.width, height=s.height,
+                chunk=chunk_id, position=position, length=size
+            ))
+            os.remove(output_slice_name)
+
+        else:
+            f.write('{x} {y} {width} {height} {name}\n'.format(
+                x=s.x, y=s.y, width=s.width, height=s.height,
+                name=s.output_name
+            ))
+            if generate_index_file:
+                index_f.write('\t<file><name>{0}</name></file>\n'.format(s.output_name))
 
     if generate_index_file:
         index_f.write('</directory>\n')
@@ -122,8 +178,19 @@ try:
                       help="The name of dir to put everything")
     parser.add_option("-i", "--index",
                       dest="index",
-                      action="store_false", default=True,
+                      action="store_true",
+                      default=False,
                       help="Generate index for Resource Compiler")
+    parser.add_option("-b", "--binary",
+                      dest="binary",
+                      action="store_true",
+                      default=False,
+                      help="Binary packed output")
+    parser.add_option("-c", "--chunk",
+                      dest="chunk",
+                      type="int",
+                      default=10,
+                      help="Slices in one chunk")
     parser.add_option("-f", "--format",
                       dest="format",
                       default="jpg",
@@ -144,7 +211,9 @@ try:
                    output_directory=options.output_dir,
                    slice_format=options.format,
                    compression_quality=options.quality,
-                   generate_index_file=options.index)
+                   generate_index_file=options.index,
+                   binary=options.binary,
+                   chunk_size=options.chunk)
 except Exception as e:
     print(e.__doc__, file=sys.stderr)
     print(e.__str__(), file=sys.stderr)
